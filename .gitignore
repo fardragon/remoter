@@ -1,0 +1,6 @@
+/.vscode
+
+/zig-out
+/zig-cache
+kernel8.img
+bcm2710-rpi-3-b-plus.dtb
