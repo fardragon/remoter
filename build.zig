@@ -29,7 +29,8 @@ pub fn build(b: *std.build.Builder) !void {
     elf.addAssemblyFileSource(.{ .path = "src/entry.S" });
     elf.setLinkerScriptPath(.{ .path = "src/link.ld" });
 
-    b.installArtifact(elf);
+    const copy_elf = b.addInstallArtifact(elf);
+    b.getInstallStep().dependOn(&copy_elf.step);
 
     const run_objcopy = b.addObjCopy(elf.getOutputSource(), .{
         .basename = "kernel8.img",
@@ -37,9 +38,7 @@ pub fn build(b: *std.build.Builder) !void {
     });
 
     const copy_image = b.addInstallFile(run_objcopy.getOutputSource(), "kernel8.img");
-
-    const image = b.step("image", "test");
-    image.dependOn(&copy_image.step);
+    b.getInstallStep().dependOn(&copy_image.step);
 
     var qemu_args = std.ArrayList([]const u8).init(b.allocator);
     try qemu_args.appendSlice(&[_][]const u8{
@@ -56,9 +55,12 @@ pub fn build(b: *std.build.Builder) !void {
 
     const run_qemu = b.addSystemCommand(qemu_args.items);
     run_qemu.step.dependOn(&copy_image.step);
+    run_qemu.step.dependOn(&copy_elf.step);
 
     const run_qemu_debug = b.addSystemCommand(qemu_args.items);
     run_qemu_debug.step.dependOn(&copy_image.step);
+    run_qemu_debug.step.dependOn(&copy_elf.step);
+
     run_qemu_debug.addArg("-S");
     run_qemu_debug.addArg("-s");
 
