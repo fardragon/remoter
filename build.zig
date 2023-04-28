@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Feature = @import("std").Target.Cpu.Feature;
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.build.Builder) !void {
     var features = Feature.Set.empty;
     features.addFeature(@enumToInt(std.Target.aarch64.Feature.strict_align));
 
@@ -40,4 +40,31 @@ pub fn build(b: *std.build.Builder) void {
 
     const image = b.step("image", "test");
     image.dependOn(&copy_image.step);
+
+    var qemu_args = std.ArrayList([]const u8).init(b.allocator);
+    try qemu_args.appendSlice(&[_][]const u8{
+        "qemu-system-aarch64",
+        "-kernel",
+        "zig-out/kernel8.img",
+        "-M",
+        "raspi3b",
+        "-serial",
+        "mon:stdio",
+        "-dtb",
+        "bcm2710-rpi-3-b-plus.dtb",
+    });
+
+    const run_qemu = b.addSystemCommand(qemu_args.items);
+    run_qemu.step.dependOn(&copy_image.step);
+
+    const run_qemu_debug = b.addSystemCommand(qemu_args.items);
+    run_qemu_debug.step.dependOn(&copy_image.step);
+    run_qemu_debug.addArg("-S");
+    run_qemu_debug.addArg("-s");
+
+    const qemu = b.step("qemu", "Run remoter in QEMU");
+    qemu.dependOn(&run_qemu.step);
+
+    const qemu_debug = b.step("qemu_debug", "Debug remoter in QEMU");
+    qemu_debug.dependOn(&run_qemu_debug.step);
 }
