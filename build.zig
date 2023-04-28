@@ -18,7 +18,7 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
+    const elf = b.addExecutable(.{
         .name = "remoter",
         // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
@@ -26,8 +26,18 @@ pub fn build(b: *std.build.Builder) void {
         .optimize = optimize,
     });
 
-    exe.addAssemblyFileSource(.{ .path = "src/entry.S" });
-    exe.setLinkerScriptPath(.{ .path = "src/link.ld" });
+    elf.addAssemblyFileSource(.{ .path = "src/entry.S" });
+    elf.setLinkerScriptPath(.{ .path = "src/link.ld" });
 
-    b.installArtifact(exe);
+    b.installArtifact(elf);
+
+    const run_objcopy = b.addObjCopy(elf.getOutputSource(), .{
+        .basename = "kernel8.img",
+        .format = std.build.ObjCopyStep.RawFormat.bin,
+    });
+
+    const copy_image = b.addInstallFile(run_objcopy.getOutputSource(), "kernel8.img");
+
+    const image = b.step("image", "test");
+    image.dependOn(&copy_image.step);
 }
