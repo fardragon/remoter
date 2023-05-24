@@ -59,7 +59,7 @@ pub const UART0 = struct {
         return bytes.len;
     }
 
-    const writer_type = std.io.Writer(
+    pub const writer_type = std.io.Writer(
         writer_context,
         writer_error,
         UART0.writer_function,
