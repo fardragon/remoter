@@ -41,7 +41,7 @@ const MessageTagResponse: u32 = 0x80000000;
 
 pub const Mailbox = struct {
     fn get_new_message() MailboxMessage {
-        var message: [MailboxMessageSize]u32 = undefined;
+        const message: [MailboxMessageSize]u32 = undefined;
         return message;
     }
 
@@ -56,9 +56,9 @@ pub const Mailbox = struct {
 
     fn send(message: *MailboxMessage, channel: MailboxChannel) !MailboxMessage {
         var request_payload: [MailboxMessageSize]u32 align(16) = undefined;
-        std.mem.copy(u32, &request_payload, &message.*);
+        std.mem.copyForwards(u32, &request_payload, &message.*);
 
-        var request = (@truncate(u32, @ptrToInt(&request_payload)) & ~@as(u32, 0xF)) | (@enumToInt(channel));
+        const request = (@as(u32, @truncate(@intFromPtr(&request_payload))) & ~@as(u32, 0xF)) | (@intFromEnum(channel));
 
         while (Mailbox.read_status() == MailboxStatus.Full) {
             util.wait_cycles(1);
@@ -72,7 +72,7 @@ pub const Mailbox = struct {
             }
 
             if (MBOX_READ.read_raw() == request) {
-                std.mem.copy(u32, &message.*, &request_payload);
+                std.mem.copyForwards(u32, &message.*, &request_payload);
                 if (message[1] == MessageTagResponse) {
                     return message.*;
                 } else {
@@ -87,12 +87,12 @@ pub const Mailbox = struct {
 
         message[0] = 8 * 4;
         message[1] = MessageTagRequest;
-        message[2] = @enumToInt(MailboxTag.GetSerial);
+        message[2] = @intFromEnum(MailboxTag.GetSerial);
         message[3] = 8;
         message[4] = 8;
         message[5] = 0;
         message[6] = 0;
-        message[7] = @enumToInt(MailboxTag.Last);
+        message[7] = @intFromEnum(MailboxTag.Last);
 
         const response = try Mailbox.send(&message, MailboxChannel.Properties);
 
@@ -104,13 +104,13 @@ pub const Mailbox = struct {
 
         message[0] = 9 * 4;
         message[1] = MessageTagRequest;
-        message[2] = @enumToInt(MailboxTag.SetClock);
+        message[2] = @intFromEnum(MailboxTag.SetClock);
         message[3] = 12;
         message[4] = 8;
         message[5] = 2;
         message[6] = clock;
         message[7] = 0;
-        message[8] = @enumToInt(MailboxTag.Last);
+        message[8] = @intFromEnum(MailboxTag.Last);
 
         _ = try Mailbox.send(&message, MailboxChannel.Properties);
     }

@@ -13,8 +13,15 @@ pub const MemoryReader = struct {
         return switch (@typeInfo(T)) {
             .Int => self.parseInt(T),
             .Struct => self.parseStruct(T),
+            .Enum => self.parseEnum(T),
             else => |info| @compileError(std.fmt.comptimePrint("Unsupported type {}", .{info})),
         };
+    }
+
+    fn parseEnum(self: *Self, comptime T: type) !T {
+        const tagType = @typeInfo(T).Enum.tag_type;
+        const result = try self.parseInt(tagType);
+        return @as(T, @enumFromInt(result));
     }
 
     fn parseInt(self: *Self, comptime T: type) !T {
@@ -23,7 +30,9 @@ pub const MemoryReader = struct {
             return error.OutOfBounds;
         }
 
-        const result = std.mem.readVarInt(T, self.memory[self.offset .. self.offset + size], std.builtin.Endian.Big);
+        const result = std.mem.readInt(T, self.memory[self.offset..][0..size], std.builtin.Endian.big);
+
+        // const result = std.mem.readVarInt(T, self.memory[self.offset .. self.offset + size], std.builtin.Endian.Big);
         self.offset += size;
         return result;
     }

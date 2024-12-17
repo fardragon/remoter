@@ -17,6 +17,28 @@ const DeviceTreeHeader = struct {
     size_dt_struct: u32,
 };
 
+const DeviceTreeStringBlock = struct {
+    const Self = @This();
+    memory: []u8,
+
+    pub fn init(ptr: [*]u8, size: usize) Self {
+        return .{ .memory = ptr[0..size] };
+    }
+
+    pub fn read_string_at(self: Self, offset: u32) []const u8 {
+        var ix = offset;
+        while (true) {
+            const c = self.memory[ix];
+            if (c == 0) {
+                break;
+            } else {
+                ix += 1;
+            }
+        }
+        return self.memory[offset..ix];
+    }
+};
+
 pub const MemoryReservation = struct {
     address: u64,
     size: u64,
@@ -40,11 +62,10 @@ pub const PropertyValue = union(enum) {
 
 pub const Property = struct {
     const Self = @This();
-    name: String,
+    name_offset: u32,
     value: PropertyValue,
 
     fn deinit(self: *Self, allocator: Allocator) void {
-        self.name.deinit();
         self.value.deinit(allocator);
     }
 };
@@ -69,7 +90,7 @@ pub const Node = struct {
         self.children.deinit();
     }
 
-    fn print_to_writer(self: Self, writer: anytype, depth: usize) @TypeOf(writer).Error!void {
+    fn print_to_writer(self: Self, writer: anytype, strings: DeviceTreeStringBlock, depth: usize) @TypeOf(writer).Error!void {
         for (0..depth) |_| {
             try writer.print("\t", .{});
         }
@@ -79,18 +100,18 @@ pub const Node = struct {
             for (0..depth) |_| {
                 try writer.print("\t", .{});
             }
-            try writer.print("{} = {}", .{ property.name, property.value });
+            try writer.print("{s} = {}\r\n", .{ strings.read_string_at(property.name_offset), property.value });
         }
 
         try writer.print("\r\n", .{});
         for (self.children.items) |child| {
-            try child.print_to_writer(writer, depth + 1);
+            try child.print_to_writer(writer, strings, depth + 1);
         }
 
         for (0..depth) |_| {
             try writer.print("\t", .{});
         }
-        try writer.print("{s}", .{"};"});
+        try writer.print("{s}\r\n", .{"};"});
     }
 };
 
@@ -105,16 +126,19 @@ const DeviceTreeToken = enum(u32) {
 pub const DeviceTree = struct {
     const Self = @This();
     memory_reservations: std.ArrayList(MemoryReservation),
+    strings: DeviceTreeStringBlock,
     nodes: std.ArrayList(Node),
     allocator: Allocator,
 
     pub fn init(allocator: Allocator, address: [*]u8) !Self {
-        var header_reader = MemoryReader.init(address, 10 * @sizeOf(u32));
+        var header_reader = MemoryReader.init(address, @sizeOf(DeviceTreeHeader));
         const header = try header_reader.read(DeviceTreeHeader);
+        const strings_block = DeviceTreeStringBlock.init(address + header.off_dt_strings, header.size_dt_strings);
 
         return .{
             .memory_reservations = try Self.parse_memory_reservations(allocator, address, header),
-            .nodes = try Self.parse_nodes(allocator, address, header),
+            .strings = strings_block,
+            .nodes = try Self.parse_nodes(allocator, address, header, strings_block),
             .allocator = allocator,
         };
     }
@@ -132,17 +156,112 @@ pub const DeviceTree = struct {
         return reservations;
     }
 
-    fn parse_nodes(allocator: Allocator, address: [*]u8, header: DeviceTreeHeader) !std.ArrayList(Node) {
+    fn parse_nodes(allocator: Allocator, address: [*]u8, header: DeviceTreeHeader, strings_block: DeviceTreeStringBlock) !std.ArrayList(Node) {
         var nodes_reader = MemoryReader.init(address + header.off_dt_struct, header.size_dt_struct);
-        _ = nodes_reader;
+
         var nodes = std.ArrayList(Node).init(allocator);
-        var test_node = Node{
-            .name = try String.init(allocator, "Test node"),
-            .properties = std.ArrayList(Property).init(allocator),
-            .children = std.ArrayList(Node).init(allocator),
-        };
-        try nodes.append(test_node);
+
+        while (true) {
+            const token = try nodes_reader.read(DeviceTreeToken);
+            switch (token) {
+                DeviceTreeToken.BeginNode => {
+                    try nodes.append(try parse_node(allocator, &nodes_reader, strings_block));
+                },
+                DeviceTreeToken.Nop => {},
+                DeviceTreeToken.End => break,
+                else => {
+                    return error.MalformedDeviceTree;
+                },
+            }
+        }
+
         return nodes;
+    }
+
+    fn parse_node(allocator: Allocator, reader: *MemoryReader, strings: DeviceTreeStringBlock) !Node {
+        var name = try parse_node_name(allocator, reader);
+
+        var properties = std.ArrayList(Property).init(allocator);
+        var children = std.ArrayList(Node).init(allocator);
+
+        errdefer {
+            name.deinit();
+            for (children.items) |*node| {
+                node.*.deinit(allocator);
+            }
+            children.deinit();
+
+            for (properties.items) |*prop| {
+                prop.*.deinit(allocator);
+            }
+            properties.deinit();
+        }
+
+        while (true) {
+            const token = try reader.read(DeviceTreeToken);
+            switch (token) {
+                .BeginNode => {
+                    try children.append(try parse_node(allocator, reader, strings));
+                },
+                .Prop => {
+                    try properties.append(try parse_property(allocator, reader, strings));
+                },
+                .EndNode => break,
+                .Nop => {},
+                else => {
+                    return error.MalformedDeviceTree;
+                },
+            }
+        }
+
+        return Node{
+            .name = name,
+            .properties = properties,
+            .children = children,
+        };
+    }
+
+    fn parse_property(allocator: Allocator, reader: *MemoryReader, strings: DeviceTreeStringBlock) !Property {
+        _ = strings; // autofix
+        const value_length = try reader.read(u32);
+        const name_offset = try reader.read(u32);
+
+        var bytes = try allocator.alloc(u8, value_length);
+        errdefer allocator.free(bytes);
+        for (0..value_length) |i| {
+            bytes[i] = try reader.read(u8);
+        }
+
+        const padding_bytes = if (value_length % 4 == 0) 0 else 4 - (value_length % 4);
+        for (0..padding_bytes) |_| {
+            _ = try reader.read(u8);
+        }
+
+        return Property{
+            .name_offset = name_offset,
+            .value = PropertyValue{ .bytes = bytes },
+        };
+    }
+
+    fn parse_node_name(allocator: Allocator, reader: *MemoryReader) !String {
+        var result = try String.init(allocator, "");
+
+        while (true) {
+            const c = try reader.read(u8);
+            if (c == 0) {
+                break;
+            } else {
+                try result.append(c);
+            }
+        }
+
+        const padding_bytes = if ((result.len() + 1) % 4 == 0) 0 else 4 - ((result.len() + 1) % 4);
+
+        for (0..padding_bytes) |_| {
+            _ = try reader.read(u8);
+        }
+
+        return result;
     }
 
     pub fn deinit(self: *Self) void {
@@ -161,7 +280,7 @@ pub const DeviceTree = struct {
 
         try writer.print("Nodes: \r\n", .{});
         for (self.nodes.items) |node| {
-            try node.print_to_writer(writer, 1);
+            try node.print_to_writer(writer, self.strings, 1);
         }
 
         return;

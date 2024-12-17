@@ -26,11 +26,11 @@ export fn remoter_main(x0: [*]u8) noreturn {
 
     var allocator = std.heap.FixedBufferAllocator.init(&buffer);
 
-    var logging_allocator = std.heap.LogToWriterAllocator(UART.writer_type).init(allocator.allocator(), UART.writer());
+    // var logging_allocator = std.heap.LogToWriterAllocator(UART.writer_type).init(allocator.allocator(), UART.writer());
     serial.println("Heap size: 0x{x}", .{buffer.len});
 
     {
-        var tree = DeviceTree.init(logging_allocator.allocator(), x0) catch unreachable;
+        var tree = DeviceTree.init(allocator.allocator(), x0) catch unreachable;
 
         serial.println("DTB: \r\n{}\r\n", .{tree});
         defer tree.deinit();

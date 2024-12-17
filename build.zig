@@ -2,9 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Feature = @import("std").Target.Cpu.Feature;
 
-pub fn build(b: *std.build.Builder) !void {
+pub fn build(b: *std.Build) !void {
     var features = Feature.Set.empty;
-    features.addFeature(@enumToInt(std.Target.aarch64.Feature.strict_align));
+    features.addFeature(@intFromEnum(std.Target.aarch64.Feature.strict_align));
 
     const target = std.zig.CrossTarget{
         .cpu_arch = .aarch64,
@@ -21,20 +21,20 @@ pub fn build(b: *std.build.Builder) !void {
     const elf = b.addExecutable(.{
         .name = "remoter",
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
+        .root_source_file = b.path("src/main.zig"),
+        .target = b.resolveTargetQuery(target),
         .optimize = optimize,
     });
 
-    elf.addAssemblyFileSource(.{ .path = "src/entry.S" });
-    elf.setLinkerScriptPath(.{ .path = "src/link.ld" });
+    elf.addAssemblyFile(b.path("src/entry.S"));
+    elf.setLinkerScriptPath(b.path("src/link.ld"));
 
-    const copy_elf = b.addInstallArtifact(elf);
+    const copy_elf = b.addInstallArtifact(elf, .{});
     b.getInstallStep().dependOn(&copy_elf.step);
 
-    const run_objcopy = b.addObjCopy(elf.getOutputSource(), .{
+    const run_objcopy = b.addObjCopy(elf.getEmittedBin(), .{
         .basename = "kernel8.img",
-        .format = std.build.ObjCopyStep.RawFormat.bin,
+        .format = std.Build.Step.ObjCopy.RawFormat.bin,
     });
 
     const copy_image = b.addInstallFile(run_objcopy.getOutputSource(), "kernel8.img");
@@ -51,6 +51,8 @@ pub fn build(b: *std.build.Builder) !void {
         "mon:stdio",
         "-dtb",
         "bcm2710-rpi-3-b-plus.dtb",
+        "-append",
+        "\"console=ttyAMA0 root=/dev/mmcblk0p2 rw rootwait rootfstype=ext4\"",
     });
 
     const run_qemu = b.addSystemCommand(qemu_args.items);

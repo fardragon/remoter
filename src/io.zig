@@ -8,7 +8,7 @@ pub const MMIORegister = struct {
     raw_ptr: *volatile u32,
 
     pub fn init(base: usize, offset: usize) MMIORegister {
-        return MMIORegister{ .raw_ptr = @intToPtr(*volatile u32, base + offset) };
+        return MMIORegister{ .raw_ptr = @as(*volatile u32, @ptrFromInt(base + offset)) };
     }
 
     pub fn read_raw(self: MMIORegister) u32 {
