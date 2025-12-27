@@ -26,10 +26,8 @@ pub const AsciiString = struct {
         self.allocator.free(self.buffer);
     }
 
-    pub fn format(value: Self, comptime fmt_str: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt_str;
-        _ = options;
-        try fmt.format(writer, "{s}", .{value.buffer});
+    pub fn format(self: Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("{s}", .{self.buffer});
     }
 
     pub fn len(self: Self) usize {

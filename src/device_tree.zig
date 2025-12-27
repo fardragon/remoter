@@ -82,19 +82,19 @@ pub const Node = struct {
         for (self.properties.items) |*prop| {
             prop.*.deinit(allocator);
         }
-        self.properties.deinit();
+        self.properties.deinit(allocator);
 
         for (self.children.items) |*child| {
             child.*.deinit(allocator);
         }
-        self.children.deinit();
+        self.children.deinit(allocator);
     }
 
-    fn print_to_writer(self: Self, writer: anytype, strings: DeviceTreeStringBlock, depth: usize) @TypeOf(writer).Error!void {
+    fn print_to_writer(self: Self, writer: *std.Io.Writer, strings: DeviceTreeStringBlock, depth: usize) std.Io.Writer.Error!void {
         for (0..depth) |_| {
             try writer.print("\t", .{});
         }
-        try writer.print("{} {s}\r\n", .{ self.name, "{" });
+        try writer.print("{f} {s}\r\n", .{ self.name, "{" });
 
         for (self.properties.items) |property| {
             for (0..depth) |_| {
@@ -145,13 +145,13 @@ pub const DeviceTree = struct {
 
     fn parse_memory_reservations(allocator: Allocator, address: [*]u8, header: DeviceTreeHeader) !std.ArrayList(MemoryReservation) {
         var mem_reader = MemoryReader.init(address + header.off_mem_rsvmap, header.totalsize - header.off_mem_rsvmap);
-        var reservations = std.ArrayList(MemoryReservation).init(allocator);
+        var reservations: std.ArrayList(MemoryReservation) = .empty;
         while (true) {
             const reservation = try mem_reader.read(MemoryReservation);
             if (reservation.address == 0 and reservation.size == 0) {
                 break;
             }
-            try reservations.append(reservation);
+            try reservations.append(allocator, reservation);
         }
         return reservations;
     }
@@ -159,13 +159,13 @@ pub const DeviceTree = struct {
     fn parse_nodes(allocator: Allocator, address: [*]u8, header: DeviceTreeHeader, strings_block: DeviceTreeStringBlock) !std.ArrayList(Node) {
         var nodes_reader = MemoryReader.init(address + header.off_dt_struct, header.size_dt_struct);
 
-        var nodes = std.ArrayList(Node).init(allocator);
+        var nodes: std.ArrayList(Node) = .empty;
 
         while (true) {
             const token = try nodes_reader.read(DeviceTreeToken);
             switch (token) {
                 DeviceTreeToken.BeginNode => {
-                    try nodes.append(try parse_node(allocator, &nodes_reader, strings_block));
+                    try nodes.append(allocator, try parse_node(allocator, &nodes_reader, strings_block));
                 },
                 DeviceTreeToken.Nop => {},
                 DeviceTreeToken.End => break,
@@ -181,30 +181,30 @@ pub const DeviceTree = struct {
     fn parse_node(allocator: Allocator, reader: *MemoryReader, strings: DeviceTreeStringBlock) !Node {
         var name = try parse_node_name(allocator, reader);
 
-        var properties = std.ArrayList(Property).init(allocator);
-        var children = std.ArrayList(Node).init(allocator);
+        var properties: std.ArrayList(Property) = .empty;
+        var children: std.ArrayList(Node) = .empty;
 
         errdefer {
             name.deinit();
             for (children.items) |*node| {
                 node.*.deinit(allocator);
             }
-            children.deinit();
+            children.deinit(allocator);
 
             for (properties.items) |*prop| {
                 prop.*.deinit(allocator);
             }
-            properties.deinit();
+            properties.deinit(allocator);
         }
 
         while (true) {
             const token = try reader.read(DeviceTreeToken);
             switch (token) {
                 .BeginNode => {
-                    try children.append(try parse_node(allocator, reader, strings));
+                    try children.append(allocator, try parse_node(allocator, reader, strings));
                 },
                 .Prop => {
-                    try properties.append(try parse_property(allocator, reader, strings));
+                    try properties.append(allocator, try parse_property(allocator, reader, strings));
                 },
                 .EndNode => break,
                 .Nop => {},
@@ -265,14 +265,14 @@ pub const DeviceTree = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.memory_reservations.deinit();
+        self.memory_reservations.deinit(self.allocator);
         for (self.nodes.items) |*node| {
             node.*.deinit(self.allocator);
         }
-        self.nodes.deinit();
+        self.nodes.deinit(self.allocator);
     }
 
-    pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
+    pub fn format(self: Self, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("Memory reservations: \r\n", .{});
         for (self.memory_reservations.items) |reservation| {
             try writer.print("\t0x{x}: {}\r\n", .{ reservation.address, reservation.size });
@@ -282,7 +282,5 @@ pub const DeviceTree = struct {
         for (self.nodes.items) |node| {
             try node.print_to_writer(writer, self.strings, 1);
         }
-
-        return;
     }
 };

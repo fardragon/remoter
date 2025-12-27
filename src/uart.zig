@@ -11,6 +11,18 @@ const UART0_LCRH: io.MMIORegister = io.MMIORegister.init(io.MMIO_BASE, 0x0020102
 const UART0_CR: io.MMIORegister = io.MMIORegister.init(io.MMIO_BASE, 0x00201030);
 const UART0_ICR: io.MMIORegister = io.MMIORegister.init(io.MMIO_BASE, 0x00201044);
 
+const UART0_FRFlags = enum(u4) {
+    CTS = 0,
+    DSR = 1,
+    DCD = 2,
+    BUSY = 3,
+    RXFE = 4,
+    TXFF = 5,
+    RXFF = 6,
+    TXFE = 7,
+    RI = 8,
+};
+
 pub const UART0 = struct {
     pub fn init() void {
         UART0_CR.write_raw(0); // disable UART0 for configuration
@@ -41,38 +53,40 @@ pub const UART0 = struct {
     }
 
     pub fn send_char(char: u8) void {
-        while (UART0_FR.read_raw() & (1 << 5) != 0) {
+        const reg = UART0_FR.read();
+        while (reg.isSet(@intFromEnum(UART0_FRFlags.TXFF))) {
             util.wait_cycles(1);
         }
-        UART0_DR.write_raw(@as(u32, char));
+        UART0_DR.write_raw(@as(io.MMIORegister.RegisterType, char));
     }
 
-    const writer_context = struct {};
-    const writer_error = error{};
+    pub fn read_char() ?u8 {
+        const reg = UART0_FR.read();
 
-    pub fn writer_function(_: writer_context, bytes: []const u8) writer_error!usize {
-        var index: usize = 0;
-        while (index != bytes.len) {
-            UART0.send_char(bytes[index]);
-            index += 1;
+        if (reg.isSet(@intFromEnum(UART0_FRFlags.RXFE))) {
+            return null;
+        } else {
+            return @as(u8, @truncate(UART0_DR.read_raw()));
         }
-        return bytes.len;
     }
 
-    pub const writer_type = std.io.Writer(
-        writer_context,
-        writer_error,
-        UART0.writer_function,
-    );
+    pub fn writer_function(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+        _ = w; // autofix
+        std.debug.assert(splat == 1);
+        std.debug.assert(data.len == 1);
 
-    pub fn writer() UART0.writer_type {
-        const w: UART0.writer_type = .{
-            .context = UART0.writer_context{},
+        for (data) |line| {
+            for (line) |byte| {
+                UART0.send_char(byte);
+            }
+        }
+        return data[0].len;
+    }
+
+    pub fn writer() std.io.Writer {
+        return .{
+            .vtable = &.{ .drain = writer_function },
+            .buffer = &.{},
         };
-        return w;
     }
-};
-
-pub const UARTWriter = struct {
-    const Self = @This();
 };

@@ -1,4 +1,4 @@
-__link_offset = 0x1000000;
+__link_offset = 0x4000000;
 
 SECTIONS
 {

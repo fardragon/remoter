@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
     var features = Feature.Set.empty;
     features.addFeature(@intFromEnum(std.Target.aarch64.Feature.strict_align));
 
-    const target = std.zig.CrossTarget{
+    const target = std.Target.Query{
         .cpu_arch = .aarch64,
         .cpu_model = .{ .explicit = &std.Target.arm.cpu.cortex_a53 },
         .os_tag = .freestanding,
@@ -18,50 +18,55 @@ pub fn build(b: *std.Build) !void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const optimize = b.standardOptimizeOption(.{});
 
-    const elf = b.addExecutable(.{
-        .name = "remoter",
-        // complicated build scripts, this could be a generated file.
+    const module = b.addModule("remoter", .{
         .root_source_file = b.path("src/main.zig"),
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,
     });
 
+    const elf = b.addExecutable(.{
+        .name = "remoter",
+        // complicated build scripts, this could be a generated file.
+        // .root_source_file = b.path("src/main.zig"),
+        // .target = b.resolveTargetQuery(target),
+        // .optimize = optimize
+        .root_module = module,
+    });
+
     elf.addAssemblyFile(b.path("src/entry.S"));
-    elf.setLinkerScriptPath(b.path("src/link.ld"));
+    elf.setLinkerScript(b.path("src/link.ld"));
 
     const copy_elf = b.addInstallArtifact(elf, .{});
     b.getInstallStep().dependOn(&copy_elf.step);
 
-    const run_objcopy = b.addObjCopy(elf.getEmittedBin(), .{
-        .basename = "kernel8.img",
-        .format = std.Build.Step.ObjCopy.RawFormat.bin,
-    });
+    const run_objcopy = b.addObjCopy(elf.getEmittedBin(), .{ .format = std.Build.Step.ObjCopy.RawFormat.bin });
+    run_objcopy.step.dependOn(&copy_elf.step);
 
-    const copy_image = b.addInstallFile(run_objcopy.getOutputSource(), "kernel8.img");
+    const copy_image = b.addInstallBinFile(run_objcopy.getOutput(), "kernel8.img");
+    copy_image.step.dependOn(&run_objcopy.step);
+
     b.getInstallStep().dependOn(&copy_image.step);
 
-    var qemu_args = std.ArrayList([]const u8).init(b.allocator);
-    try qemu_args.appendSlice(&[_][]const u8{
+    const qemu_args = [_][]const u8{
         "qemu-system-aarch64",
         "-kernel",
-        "zig-out/kernel8.img",
+        "zig-out/bin/kernel8.img",
         "-M",
         "raspi3b",
-        "-serial",
-        "mon:stdio",
         "-dtb",
         "bcm2710-rpi-3-b-plus.dtb",
         "-append",
-        "\"console=ttyAMA0 root=/dev/mmcblk0p2 rw rootwait rootfstype=ext4\"",
-    });
+        "\"console=ttyAMA1 root=/dev/mmcblk0p2 rw rootwait rootfstype=ext4\"",
+        "-nographic",
+        // "-serial",
+        // "pty",
+    };
 
-    const run_qemu = b.addSystemCommand(qemu_args.items);
+    const run_qemu = b.addSystemCommand(&qemu_args);
     run_qemu.step.dependOn(&copy_image.step);
-    run_qemu.step.dependOn(&copy_elf.step);
 
-    const run_qemu_debug = b.addSystemCommand(qemu_args.items);
+    const run_qemu_debug = b.addSystemCommand(&qemu_args);
     run_qemu_debug.step.dependOn(&copy_image.step);
-    run_qemu_debug.step.dependOn(&copy_elf.step);
 
     run_qemu_debug.addArg("-S");
     run_qemu_debug.addArg("-s");

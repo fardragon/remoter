@@ -11,15 +11,15 @@ pub const MemoryReader = struct {
 
     pub fn read(self: *Self, comptime T: type) !T {
         return switch (@typeInfo(T)) {
-            .Int => self.parseInt(T),
-            .Struct => self.parseStruct(T),
-            .Enum => self.parseEnum(T),
+            .int => self.parseInt(T),
+            .@"struct" => self.parseStruct(T),
+            .@"enum" => self.parseEnum(T),
             else => |info| @compileError(std.fmt.comptimePrint("Unsupported type {}", .{info})),
         };
     }
 
     fn parseEnum(self: *Self, comptime T: type) !T {
-        const tagType = @typeInfo(T).Enum.tag_type;
+        const tagType = @typeInfo(T).@"enum".tag_type;
         const result = try self.parseInt(tagType);
         return @as(T, @enumFromInt(result));
     }

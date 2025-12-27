@@ -8,11 +8,13 @@ pub const Serial = struct {
     }
 
     pub fn print(comptime fmt_str: []const u8, args: anytype) void {
-        fmt.format(UART.writer(), fmt_str, args) catch unreachable;
+        var writer = UART.writer();
+        return writer.print(fmt_str, args) catch unreachable;
     }
     pub fn println(comptime fmt_str: []const u8, args: anytype) void {
         var writer = UART.writer();
-        fmt.format(writer, fmt_str, args) catch unreachable;
+
+        writer.print(fmt_str, args) catch unreachable;
         _ = writer.write("\r\n") catch unreachable;
     }
 };

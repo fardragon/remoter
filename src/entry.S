@@ -12,6 +12,7 @@ _start:
     mov     x12, x2
     mov     x13, x3
 
+    // relocate from 0x80000 to _start
     ldr     x1, =0x80000
     ldr     x2, =_start
     ldr     w3, =__loader_size
@@ -25,9 +26,9 @@ _start:
     ldr     x1, =_start
     mov     sp, x1
 
-    // jump to zig code, should not return
+    // jump to relocated zig code, should not return
     bl      __remoter_main_offset
-    // for failsafe, halt this core too
+    // halt if main returns for some reason
 hang:
     wfe
     b       hang
