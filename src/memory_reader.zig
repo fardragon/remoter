@@ -32,7 +32,6 @@ pub const MemoryReader = struct {
 
         const result = std.mem.readInt(T, self.memory[self.offset..][0..size], std.builtin.Endian.big);
 
-        // const result = std.mem.readVarInt(T, self.memory[self.offset .. self.offset + size], std.builtin.Endian.Big);
         self.offset += size;
         return result;
     }
