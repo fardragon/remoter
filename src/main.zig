@@ -9,12 +9,12 @@ const Util = @import("util.zig");
 
 var buffer: [512 * 1024]u8 = undefined;
 
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     serial.println("Panic!: {s}", .{msg});
 
-    var writer = UART.writer();
-    if (error_return_trace) |st| {
-        writer.print("Stack trace index: {d} len: {d}\r\n", .{ st.index, st.instruction_addresses.len }) catch {};
+    var it = std.debug.StackIterator.init(@returnAddress(), @frameAddress());
+    while (it.next()) |return_address| {
+        serial.print("0x{x}\r\n", .{return_address});
     }
 
     while (true) {}

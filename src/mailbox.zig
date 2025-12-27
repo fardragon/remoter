@@ -36,8 +36,10 @@ const MailboxStatus = enum {
     Empty,
 };
 
-const MessageTagRequest: u32 = 0;
-const MessageTagResponse: u32 = 0x80000000;
+const MessageTag = enum(u32) {
+    Request = 0,
+    Response = 0x80000000,
+};
 
 pub const Mailbox = struct {
     fn get_new_message() MailboxMessage {
@@ -73,7 +75,7 @@ pub const Mailbox = struct {
 
             if (MBOX_READ.read_raw() == request) {
                 std.mem.copyForwards(u32, &message.*, &request_payload);
-                if (message[1] == MessageTagResponse) {
+                if (@as(MessageTag, @enumFromInt(message[1])) == MessageTag.Response) {
                     return message.*;
                 } else {
                     return error.InvalidMailboxResponse;
@@ -86,7 +88,7 @@ pub const Mailbox = struct {
         var message: MailboxMessage = get_new_message();
 
         message[0] = 8 * 4;
-        message[1] = MessageTagRequest;
+        message[1] = @intFromEnum(MessageTag.Request);
         message[2] = @intFromEnum(MailboxTag.GetSerial);
         message[3] = 8;
         message[4] = 8;
@@ -103,7 +105,7 @@ pub const Mailbox = struct {
         var message: MailboxMessage = get_new_message();
 
         message[0] = 9 * 4;
-        message[1] = MessageTagRequest;
+        message[1] = @intFromEnum(MessageTag.Request);
         message[2] = @intFromEnum(MailboxTag.SetClock);
         message[3] = 12;
         message[4] = 8;
